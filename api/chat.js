@@ -111,7 +111,7 @@ module.exports = async (req, res) => {
         'X-Title': 'Osuolale Portfolio Chatbot'
       },
       body: JSON.stringify({
-        model: 'qwen/qwen3.8-27b',
+        model: 'anthropic/claude-opus-5',
         max_tokens: 200,
         messages: messages
       })
