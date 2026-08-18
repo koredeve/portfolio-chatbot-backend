@@ -54,7 +54,7 @@ PRICING:
 - Fast turnaround (1-2 weeks typical)
 
 COMMUNICATION:
-- Email: innovation@ajared.ca
+- Email: kelightsub@gmail.com
 - Ready to discuss projects
 - Available for consultations
 - Quick response time
@@ -111,7 +111,7 @@ module.exports = async (req, res) => {
         'X-Title': 'Osuolale Portfolio Chatbot'
       },
       body: JSON.stringify({
-        model: 'anthropic/claude-opus-5-fast',
+        model: 'qwen/qwen3.8-27b',
         max_tokens: 200,
         messages: messages
       })
