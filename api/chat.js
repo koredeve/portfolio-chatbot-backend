@@ -1,75 +1,10 @@
 /**
  * POST /api/chat
- * Secure chatbot endpoint - proxies to OpenRouter with portfolio knowledge
- * Hides API key from frontend, captures lead data
+ * Smart rule-based chatbot - only calls Claude at the end for final message
+ * Guides conversation: Name → Email → Project → Budget
  */
 
-// Use native Node.js fetch (v18+) instead of node-fetch
-
-// Portfolio knowledge base
-const PORTFOLIO_CONTEXT = `
-You are a professional AI assistant for Osuolale Quyum (koredeve), an AI Engineer and Solana Developer based in Africa.
-
-ABOUT OSUOLALE:
-- AI Engineer specializing in production-grade AI systems
-- Expert in LLM integrations (Claude, GPT, OpenRouter)
-- Builds real-time Solana DeFi applications
-- Experienced with trading systems, web scraping, automation
-- Based in Africa, works with global clients
-
-COMPLETED PROJECTS:
-1. MemeDash - Real-time memecoin scanner
-   - Pump.fun websocket integration
-   - Token scoring algorithm
-   - Telegram alerts (70+ per day)
-   - DexScreener metrics
-   - Production-grade infrastructure
-
-2. Wallet Analyzer - Smart money profiling
-   - Jupiter Portfolio integration
-   - Claude AI analysis
-   - Win rate & PnL tracking
-   - Real-time wallet analytics
-   - 1-10 smart money scoring
-
-3. Various AI Chatbots & Automation Systems
-   - Lead capture systems
-   - Discord/Telegram bots
-   - Custom integrations
-   - Real-time monitoring
-
-SERVICES OFFERED:
-- Custom AI applications & chatbots
-- LLM integrations & prompt engineering
-- Solana DeFi system development
-- Real-time scanning & alert systems
-- Trading bot development
-- Web scraping & data analysis
-- Production infrastructure setup
-
-PRICING:
-- Typical project: $2,000 - $5,000
-- Scope-dependent
-- Can discuss custom rates
-- Fast turnaround (1-2 weeks typical)
-
-COMMUNICATION:
-- Email: innovation@ajared.ca
-- Ready to discuss projects
-- Available for consultations
-- Quick response time
-
-IMPORTANT INSTRUCTIONS:
-1. Be friendly, professional, encouraging
-2. Show genuine interest in their project
-3. Ask qualifying questions to understand their needs
-4. Mention relevant completed projects when applicable
-5. Be clear about typical timelines and investment
-6. Collect: Name → Email → Project Description → Budget
-7. After collecting all info, confirm you'll have Osuolale reach out
-8. Keep responses short (1-2 sentences max)
-9. Ask one question at a time
-`;
+// Use native Node.js fetch (v18+)
 
 module.exports = async (req, res) => {
   // CORS headers
@@ -92,25 +27,140 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'message required' });
     }
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'API key not configured' });
+    // Extract lead data from conversation history
+    const leadData = extractLeadData(conversationHistory);
+
+    // Determine next step in conversation
+    const nextStep = determineNextStep(leadData);
+    const botMessage = generateBotMessage(nextStep, leadData, message);
+
+    // If we have all data, call Claude to generate final message
+    if (leadData.name && leadData.email && leadData.project && leadData.budget) {
+      const finalMessage = await generateFinalMessage(leadData);
+
+      return res.status(200).json({
+        success: true,
+        message: finalMessage,
+        isComplete: true,
+        leadData: leadData,
+        timestamp: new Date().toISOString()
+      });
     }
 
-    // Build messages with portfolio context
-    const messages = [
-      {
-        role: 'system',
-        content: PORTFOLIO_CONTEXT
-      },
-      ...conversationHistory,
-      {
-        role: 'user',
-        content: message
-      }
-    ];
+    return res.status(200).json({
+      success: true,
+      message: botMessage,
+      isComplete: false,
+      timestamp: new Date().toISOString()
+    });
 
-    // Call OpenRouter
+  } catch (error) {
+    console.error('[CHATBOT] Error:', error.message);
+    return res.status(500).json({
+      error: 'Failed to process message',
+      details: error.message
+    });
+  }
+};
+
+// Extract lead data from conversation
+function extractLeadData(history) {
+  const data = {
+    name: null,
+    email: null,
+    project: null,
+    budget: null
+  };
+
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i].content.toLowerCase();
+
+    // Extract name (simple heuristic - first word that looks like a name)
+    if (i % 2 === 1 && !data.name && msg.length < 30 && msg.split(' ').length <= 3) {
+      const words = msg.split(' ');
+      const firstWord = words[0];
+      if (firstWord.length > 2 && !firstWord.includes('@') && !firstWord.match(/\d+/) && !['yes', 'no', 'okay', 'ok', 'sure'].includes(firstWord)) {
+        data.name = history[i].content;
+      }
+    }
+
+    // Extract email
+    if (msg.includes('@') && msg.includes('.')) {
+      const emailMatch = history[i].content.match(/[^\s@]+@[^\s@]+\.[^\s@]+/);
+      if (emailMatch) {
+        data.email = emailMatch[0];
+      }
+    }
+
+    // Extract project (anything after name/email and before budget mention)
+    if (data.name && !data.email && i % 2 === 1) {
+      if (msg.length > 10 && msg.length < 200 && !msg.match(/^\d+/) && !msg.includes('@')) {
+        data.project = history[i].content;
+      }
+    }
+
+    // Extract budget (numbers followed by k, m, or standalone large numbers)
+    if (msg.match(/\d+(?:k|m)?/i) || msg.match(/\b\d{3,}\b/)) {
+      const budgetMatch = history[i].content.match(/\d+(?:[,.]?\d+)*(?:k|m)?/i);
+      if (budgetMatch) {
+        data.budget = budgetMatch[0];
+      }
+    }
+  }
+
+  return data;
+}
+
+// Determine next step
+function determineNextStep(leadData) {
+  if (!leadData.name) return 'ask_name';
+  if (!leadData.email) return 'ask_email';
+  if (!leadData.project) return 'ask_project';
+  if (!leadData.budget) return 'ask_budget';
+  return 'complete';
+}
+
+// Generate bot message based on step
+function generateBotMessage(step, leadData, userMessage) {
+  const messages = {
+    ask_name: "Hey there! 👋 I'm Osuolale's assistant. What's your name?",
+
+    ask_email: `Nice to meet you, ${leadData.name}! 😊 What's your email address?`,
+
+    ask_project: `Got it! What kind of project are you looking to build?`,
+
+    ask_budget: `Interesting! What's your budget range for this project?`,
+
+    complete: `Thanks for the info, ${leadData.name}! We'll be in touch soon.`
+  };
+
+  return messages[step] || messages.ask_name;
+}
+
+// Call Claude ONLY for the final personalized message
+async function generateFinalMessage(leadData) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    return `Perfect, ${leadData.name}! Thanks for sharing. Osuolale will review your project and reach out shortly at ${leadData.email}. Typical timeline: 1-2 weeks. Looking forward to building with you!`;
+  }
+
+  try {
+    const prompt = `Generate a warm, professional 2-sentence closing message for a potential client.
+
+Client Details:
+- Name: ${leadData.name}
+- Email: ${leadData.email}
+- Project: ${leadData.project}
+- Budget: $${leadData.budget}
+
+The message should:
+1. Thank them warmly
+2. Confirm next steps (Osuolale will review and reach out)
+3. Be personalized to their project
+4. Keep it brief (2 sentences max)
+
+Generate ONLY the message, nothing else.`;
+
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -121,32 +171,21 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         model: 'anthropic/claude-opus-5-fast',
-        max_tokens: 200,
-        messages: messages
+        max_tokens: 100,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      console.error('OpenRouter error:', error);
-      return res.status(response.status).json({
-        error: error.error?.message || 'AI service error'
-      });
+      throw new Error('Claude call failed');
     }
 
     const data = await response.json();
-    const botMessage = data.choices[0].message.content;
+    return data.choices[0].message.content;
 
-    return res.status(200).json({
-      success: true,
-      message: botMessage,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('[CHATBOT] Error:', error.message);
-    return res.status(500).json({
-      error: 'Failed to process message',
-      details: error.message
-    });
+  } catch (err) {
+    console.error('Claude error:', err.message);
+    // Fallback message if Claude fails
+    return `Perfect, ${leadData.name}! Osuolale will review your ${leadData.project} project and reach out at ${leadData.email} soon. Typical timeline: 1-2 weeks.`;
   }
-};
+}
