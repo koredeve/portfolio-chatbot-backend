@@ -4,7 +4,7 @@
  * Hides API key from frontend, captures lead data
  */
 
-const fetch = require('node-fetch');
+// Use native Node.js fetch (v18+) instead of node-fetch
 
 // Portfolio knowledge base
 const PORTFOLIO_CONTEXT = `

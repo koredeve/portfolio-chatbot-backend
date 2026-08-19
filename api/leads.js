@@ -4,7 +4,7 @@
  * Sends notification email to innovation@ajared.ca
  */
 
-const fetch = require('node-fetch');
+// Use native Node.js fetch (v18+) instead of node-fetch
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
