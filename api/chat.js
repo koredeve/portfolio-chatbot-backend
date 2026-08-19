@@ -120,7 +120,7 @@ module.exports = async (req, res) => {
         'X-Title': 'Osuolale Portfolio Chatbot'
       },
       body: JSON.stringify({
-        model: 'google/gemini-2-flash-lite',
+        model: 'anthropic/claude-opus-5-fast',
         max_tokens: 200,
         messages: messages
       })
