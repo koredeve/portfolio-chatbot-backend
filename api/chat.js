@@ -71,7 +71,7 @@ module.exports = async (req, res) => {
   }
 };
 
-// Extract lead data from conversation
+// Extract lead data from conversation (simple positional extraction)
 function extractLeadData(history) {
   const data = {
     name: null,
@@ -80,41 +80,19 @@ function extractLeadData(history) {
     budget: null
   };
 
+  // Get only user messages (even indices: 0, 2, 4, 6)
+  const userMessages = [];
   for (let i = 0; i < history.length; i++) {
-    const msg = history[i].content.toLowerCase();
-
-    // Extract name (simple heuristic - first word that looks like a name)
-    if (i % 2 === 1 && !data.name && msg.length < 30 && msg.split(' ').length <= 3) {
-      const words = msg.split(' ');
-      const firstWord = words[0];
-      if (firstWord.length > 2 && !firstWord.includes('@') && !firstWord.match(/\d+/) && !['yes', 'no', 'okay', 'ok', 'sure'].includes(firstWord)) {
-        data.name = history[i].content;
-      }
-    }
-
-    // Extract email
-    if (msg.includes('@') && msg.includes('.')) {
-      const emailMatch = history[i].content.match(/[^\s@]+@[^\s@]+\.[^\s@]+/);
-      if (emailMatch) {
-        data.email = emailMatch[0];
-      }
-    }
-
-    // Extract project (anything after name/email and before budget mention)
-    if (data.name && !data.email && i % 2 === 1) {
-      if (msg.length > 10 && msg.length < 200 && !msg.match(/^\d+/) && !msg.includes('@')) {
-        data.project = history[i].content;
-      }
-    }
-
-    // Extract budget (numbers followed by k, m, or standalone large numbers)
-    if (msg.match(/\d+(?:k|m)?/i) || msg.match(/\b\d{3,}\b/)) {
-      const budgetMatch = history[i].content.match(/\d+(?:[,.]?\d+)*(?:k|m)?/i);
-      if (budgetMatch) {
-        data.budget = budgetMatch[0];
-      }
+    if (history[i].role === 'user') {
+      userMessages.push(history[i].content);
     }
   }
+
+  // Extract in order: 1st user msg = name, 2nd = email, 3rd = project, 4th = budget
+  if (userMessages.length > 0) data.name = userMessages[0];
+  if (userMessages.length > 1) data.email = userMessages[1];
+  if (userMessages.length > 2) data.project = userMessages[2];
+  if (userMessages.length > 3) data.budget = userMessages[3];
 
   return data;
 }
@@ -178,7 +156,7 @@ Generate ONLY the message, nothing else.`;
         'X-Title': 'Osuolale Portfolio Chatbot'
       },
       body: JSON.stringify({
-        model: 'anthropic/claude-opus-5-fast',
+        model: 'anthropic/claude-opus',
         max_tokens: 100,
         messages: [{ role: 'user', content: prompt }]
       })

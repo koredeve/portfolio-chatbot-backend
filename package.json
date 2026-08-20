@@ -1,5 +1,8 @@
 {
   "name": "portfolio-chatbot-backend",
   "version": "1.0.0",
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
 }
