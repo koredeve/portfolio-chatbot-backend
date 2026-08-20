@@ -20,7 +20,15 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { conversationHistory = [] } = req.body;
+    // Parse body if it's a string or buffer
+    let body = req.body;
+    if (typeof body === 'string') {
+      body = JSON.parse(body);
+    } else if (Buffer.isBuffer(body)) {
+      body = JSON.parse(body.toString());
+    }
+
+    const { conversationHistory = [] } = body || {};
 
     if (!conversationHistory || conversationHistory.length === 0) {
       return res.status(400).json({ error: 'conversationHistory required' });
