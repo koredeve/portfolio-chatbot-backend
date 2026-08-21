@@ -1,5 +1,10 @@
 {
   "name": "portfolio-chatbot-backend",
   "version": "1.0.0",
-  "type": "commonjs"
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  }
 }
