@@ -1,10 +1,8 @@
 /**
  * POST /api/leads
  * Capture lead data from chatbot
- * Sends notification email to innovation@ajared.ca
+ * Sends notification email to kelightsub@gmail.com
  */
-
-// Use native Node.js fetch (v18+) instead of node-fetch
 
 module.exports = async (req, res) => {
   // CORS headers
@@ -13,35 +11,47 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    res.writeHead(200);
+    res.end();
+    return;
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'POST only' });
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'POST only' }));
+    return;
   }
 
   try {
-    // Parse body if it's a string or buffer
-    let body = req.body;
-    if (typeof body === 'string') {
-      body = JSON.parse(body);
-    } else if (Buffer.isBuffer(body)) {
-      body = JSON.parse(body.toString());
+    // Parse body
+    let body = '';
+    await new Promise((resolve, reject) => {
+      req.on('data', chunk => body += chunk);
+      req.on('end', resolve);
+      req.on('error', reject);
+    });
+
+    let data = {};
+    try {
+      data = JSON.parse(body);
+    } catch (e) {
+      // Empty or invalid JSON
     }
 
-    const { name, email, projectDescription, budget } = body || {};
+    const { name, email, projectDescription, budget } = data;
 
     // Validate required fields
     if (!name || !email || !projectDescription) {
-      return res.status(400).json({
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
         error: 'Missing required fields',
         required: ['name', 'email', 'projectDescription']
-      });
+      }));
+      return;
     }
 
     console.log('[LEADS] New lead captured:', { name, email });
 
-    // Store lead data (could be database, but for now log + notify)
     const leadData = {
       name,
       email,
@@ -51,49 +61,54 @@ module.exports = async (req, res) => {
       source: 'portfolio-chatbot'
     };
 
-    // Try to send email notification via simple HTTP service
-    // Using a free service like Formspree or Webhook.cool
-    const webhookUrl = process.env.LEAD_WEBHOOK_URL;
-    if (webhookUrl) {
+    // Try to send email notification via Formspree
+    const formspreeUrl = process.env.FORMSPREE_URL;
+    if (formspreeUrl) {
       try {
-        await fetch(webhookUrl, {
+        await fetch(formspreeUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            subject: `New Lead: ${name}`,
-            text: `
+            name: name,
+            email: email,
+            _subject: `New Lead: ${name}`,
+            message: `
 New Project Inquiry
 ==================
 Name: ${name}
 Email: ${email}
 Project: ${projectDescription}
-Budget: ${budget || 'Not specified'}
+Budget: $${budget || 'Not specified'}
 Time: ${new Date().toISOString()}
 
 This lead came from your portfolio chatbot at koredeve.github.io
             `.trim()
           })
         });
+        console.log('[LEADS] Email sent to kelightsub@gmail.com via Formspree');
       } catch (err) {
-        console.warn('[LEADS] Webhook notification failed:', err.message);
-        // Don't fail the request if webhook fails
+        console.warn('[LEADS] Formspree notification failed:', err.message);
       }
+    } else {
+      console.warn('[LEADS] FORMSPREE_URL not configured');
     }
 
-    // Log to console (visible in Vercel logs)
     console.log('[LEADS] Lead data:', leadData);
 
-    return res.status(200).json({
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
       success: true,
       message: 'Lead captured successfully',
       leadId: `lead_${Date.now()}`,
-      notification: webhookUrl ? 'sent' : 'pending-setup'
-    });
+      notification: formspreeUrl ? 'sent' : 'pending-setup'
+    }));
+
   } catch (error) {
     console.error('[LEADS] Error:', error.message);
-    return res.status(500).json({
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
       error: 'Failed to capture lead',
       details: error.message
-    });
+    }));
   }
 };

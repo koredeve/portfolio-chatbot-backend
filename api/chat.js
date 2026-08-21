@@ -4,8 +4,6 @@
  * Guides conversation: Name → Email → Project → Budget
  */
 
-// Use native Node.js fetch (v18+)
-
 module.exports = async (req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,74 +11,85 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    res.writeHead(200);
+    res.end();
+    return;
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'POST only' });
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'POST only' }));
+    return;
   }
 
   try {
-    // Parse body if it's a string or buffer
-    let body = req.body;
-    if (typeof body === 'string') {
-      body = JSON.parse(body);
-    } else if (Buffer.isBuffer(body)) {
-      body = JSON.parse(body.toString());
+    // Parse body
+    let body = '';
+    await new Promise((resolve, reject) => {
+      req.on('data', chunk => body += chunk);
+      req.on('end', resolve);
+      req.on('error', reject);
+    });
+
+    let data = {};
+    try {
+      data = JSON.parse(body);
+    } catch (e) {
+      // Empty or invalid JSON
     }
 
-    const { message, conversationHistory = [] } = body || {};
+    const { message, conversationHistory = [] } = data;
 
     if (!message) {
-      return res.status(400).json({ error: 'message required' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'message required' }));
+      return;
     }
 
-    // Extract lead data from conversation history
+    // Extract lead data from conversation
     const leadData = extractLeadData(conversationHistory);
 
-    // Determine next step in conversation
+    // Determine next step
     const nextStep = determineNextStep(leadData);
-    const botMessage = generateBotMessage(nextStep, leadData, message);
+    const botMessage = generateBotMessage(nextStep, leadData);
 
-    // If we have all data, call Claude to generate final message
+    // If we have all data, call Claude
     if (leadData.name && leadData.email && leadData.project && leadData.budget) {
       const finalMessage = await generateFinalMessage(leadData);
 
-      return res.status(200).json({
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
         success: true,
         message: finalMessage,
         isComplete: true,
         leadData: leadData,
         timestamp: new Date().toISOString()
-      });
+      }));
+      return;
     }
 
-    return res.status(200).json({
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
       success: true,
       message: botMessage,
       isComplete: false,
       timestamp: new Date().toISOString()
-    });
+    }));
 
   } catch (error) {
     console.error('[CHATBOT] Error:', error.message);
-    return res.status(500).json({
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
       error: 'Failed to process message',
       details: error.message
-    });
+    }));
   }
 };
 
-// Extract lead data from conversation (simple positional extraction)
+// Extract lead data (positional order)
 function extractLeadData(history) {
-  const data = {
-    name: null,
-    email: null,
-    project: null,
-    budget: null
-  };
+  const data = { name: null, email: null, project: null, budget: null };
 
-  // Get only user messages (even indices: 0, 2, 4, 6)
   const userMessages = [];
   for (let i = 0; i < history.length; i++) {
     if (history[i].role === 'user') {
@@ -88,7 +97,6 @@ function extractLeadData(history) {
     }
   }
 
-  // Extract in order: 1st user msg = name, 2nd = email, 3rd = project, 4th = budget
   if (userMessages.length > 0) data.name = userMessages[0];
   if (userMessages.length > 1) data.email = userMessages[1];
   if (userMessages.length > 2) data.project = userMessages[2];
@@ -106,24 +114,20 @@ function determineNextStep(leadData) {
   return 'complete';
 }
 
-// Generate bot message based on step
-function generateBotMessage(step, leadData, userMessage) {
+// Generate bot message
+function generateBotMessage(step, leadData) {
   const messages = {
     ask_name: "Hey there! 👋 I'm Osuolale's assistant. What's your name?",
-
     ask_email: `Nice to meet you, ${leadData.name}! 😊 What's your email address?`,
-
     ask_project: `Got it! What kind of project are you looking to build?`,
-
     ask_budget: `Interesting! What's your budget range for this project?`,
-
     complete: `Thanks for the info, ${leadData.name}! We'll be in touch soon.`
   };
 
   return messages[step] || messages.ask_name;
 }
 
-// Call Claude ONLY for the final personalized message
+// Call Claude Opus for final message
 async function generateFinalMessage(leadData) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -166,12 +170,11 @@ Generate ONLY the message, nothing else.`;
       throw new Error('Claude call failed');
     }
 
-    const data = await response.json();
-    return data.choices[0].message.content;
+    const result = await response.json();
+    return result.choices[0].message.content;
 
   } catch (err) {
     console.error('Claude error:', err.message);
-    // Fallback message if Claude fails
     return `Perfect, ${leadData.name}! Osuolale will review your ${leadData.project} project and reach out at ${leadData.email} soon. Typical timeline: 1-2 weeks.`;
   }
 }

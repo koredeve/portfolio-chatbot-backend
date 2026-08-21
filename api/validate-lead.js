@@ -3,8 +3,6 @@
  * Validates and extracts lead data from conversation
  */
 
-// Use native Node.js fetch (v18+)
-
 module.exports = async (req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,34 +10,49 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    res.writeHead(200);
+    res.end();
+    return;
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'POST only' });
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'POST only' }));
+    return;
   }
 
   try {
-    // Parse body if it's a string or buffer
-    let body = req.body;
-    if (typeof body === 'string') {
-      body = JSON.parse(body);
-    } else if (Buffer.isBuffer(body)) {
-      body = JSON.parse(body.toString());
+    // Parse body
+    let body = '';
+    await new Promise((resolve, reject) => {
+      req.on('data', chunk => body += chunk);
+      req.on('end', resolve);
+      req.on('error', reject);
+    });
+
+    let data = {};
+    try {
+      data = JSON.parse(body);
+    } catch (e) {
+      // Empty or invalid JSON
     }
 
-    const { conversationHistory = [] } = body || {};
+    const { conversationHistory = [] } = data;
 
     if (!conversationHistory || conversationHistory.length === 0) {
-      return res.status(400).json({ error: 'conversationHistory required' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'conversationHistory required' }));
+      return;
     }
 
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'API key not configured' });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'API key not configured' }));
+      return;
     }
 
-    // Extract lead info from conversation using AI
+    // Validate lead using Claude
     const validationPrompt = `Based on this conversation, extract the lead information.
 Return ONLY a JSON object with: { name, email, projectDescription, budget }
 If any field is missing, use null.
@@ -55,7 +68,7 @@ ${conversationHistory.map(m => `${m.role}: ${m.content}`).join('\n')}`;
         'X-Title': 'Osuolale Portfolio Chatbot'
       },
       body: JSON.stringify({
-        model: 'deepseek/deepseek-chat',
+        model: 'anthropic/claude-opus',
         max_tokens: 300,
         messages: [
           {
@@ -73,39 +86,38 @@ ${conversationHistory.map(m => `${m.role}: ${m.content}`).join('\n')}`;
     if (!response.ok) {
       const error = await response.json();
       console.error('OpenRouter error:', error);
-      return res.status(response.status).json({ error: 'Validation failed' });
+      res.writeHead(response.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Validation failed' }));
+      return;
     }
 
-    const data = await response.json();
-    const validationResult = data.choices[0].message.content;
+    const result = await response.json();
+    const validationResult = result.choices[0].message.content;
 
-    // Parse JSON response
     try {
       const leadData = JSON.parse(validationResult);
-      return res.status(200).json({
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
         success: true,
         leadData: leadData,
         timestamp: new Date().toISOString()
-      });
+      }));
     } catch (parseErr) {
-      // If JSON parsing fails, return raw text
-      return res.status(200).json({
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
         success: true,
-        leadData: {
-          name: null,
-          email: null,
-          projectDescription: null,
-          budget: null
-        },
+        leadData: { name: null, email: null, projectDescription: null, budget: null },
         raw: validationResult,
         timestamp: new Date().toISOString()
-      });
+      }));
     }
+
   } catch (error) {
     console.error('[VALIDATE-LEAD] Error:', error.message);
-    return res.status(500).json({
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
       error: 'Failed to validate lead',
       details: error.message
-    });
+    }));
   }
 };
