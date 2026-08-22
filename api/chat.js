@@ -106,40 +106,46 @@ module.exports = async (req, res) => {
   }
 };
 
-// Extract and validate lead data
+// Extract and validate lead data - smartly maps messages to fields
 function extractLeadData(history) {
   const data = { name: null, email: null, project: null, budget: null };
 
   const userMessages = [];
   for (let i = 0; i < history.length; i++) {
     if (history[i].role === 'user') {
-      userMessages.push(history[i].content);
+      userMessages.push(history[i].content.trim());
     }
   }
 
-  // Step 0: Name (accept anything non-empty)
-  if (userMessages.length > 0 && userMessages[0].trim().length > 0) {
-    data.name = userMessages[0].trim();
-  }
+  // Process messages in order, assigning to next available slot
+  let currentStep = 'ask_name';
 
-  // Step 1: Email (validate email format)
-  if (userMessages.length > 1) {
-    const email = userMessages[1].trim();
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      data.email = email;
-    }
-  }
+  for (const msg of userMessages) {
+    if (!msg.length) continue; // Skip empty messages
 
-  // Step 2: Project (accept anything non-empty)
-  if (userMessages.length > 2 && userMessages[2].trim().length > 5) {
-    data.project = userMessages[2].trim();
-  }
-
-  // Step 3: Budget (validate contains numbers)
-  if (userMessages.length > 3) {
-    const budget = userMessages[3].trim();
-    if (/\d+/.test(budget)) {
-      data.budget = budget;
+    if (currentStep === 'ask_name') {
+      if (msg.length > 0) {
+        data.name = msg;
+        currentStep = 'ask_email';
+      }
+    } else if (currentStep === 'ask_email') {
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(msg)) {
+        data.email = msg;
+        currentStep = 'ask_project';
+      }
+      // If invalid email, stay on ask_email step and skip this message
+    } else if (currentStep === 'ask_project') {
+      if (msg.length >= 5) {
+        data.project = msg;
+        currentStep = 'ask_budget';
+      }
+      // If invalid project, stay on ask_project step and skip this message
+    } else if (currentStep === 'ask_budget') {
+      if (/\d+/.test(msg)) {
+        data.budget = msg;
+        currentStep = 'complete';
+      }
+      // If invalid budget, stay on ask_budget step and skip this message
     }
   }
 
