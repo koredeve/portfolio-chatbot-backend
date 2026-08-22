@@ -86,7 +86,7 @@ module.exports = async (req, res) => {
   }
 };
 
-// Extract lead data (positional order)
+// Extract and validate lead data
 function extractLeadData(history) {
   const data = { name: null, email: null, project: null, budget: null };
 
@@ -97,30 +97,59 @@ function extractLeadData(history) {
     }
   }
 
-  if (userMessages.length > 0) data.name = userMessages[0];
-  if (userMessages.length > 1) data.email = userMessages[1];
-  if (userMessages.length > 2) data.project = userMessages[2];
-  if (userMessages.length > 3) data.budget = userMessages[3];
+  // Step 0: Name (accept anything non-empty)
+  if (userMessages.length > 0 && userMessages[0].trim().length > 0) {
+    data.name = userMessages[0].trim();
+  }
+
+  // Step 1: Email (validate email format)
+  if (userMessages.length > 1) {
+    const email = userMessages[1].trim();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      data.email = email;
+    }
+  }
+
+  // Step 2: Project (accept anything non-empty)
+  if (userMessages.length > 2 && userMessages[2].trim().length > 5) {
+    data.project = userMessages[2].trim();
+  }
+
+  // Step 3: Budget (validate contains numbers)
+  if (userMessages.length > 3) {
+    const budget = userMessages[3].trim();
+    if (/\d+/.test(budget)) {
+      data.budget = budget;
+    }
+  }
 
   return data;
 }
 
-// Determine next step
+// Determine next step (with validation)
 function determineNextStep(leadData) {
+  // Name: any non-empty value
   if (!leadData.name) return 'ask_name';
+
+  // Email: must be valid format
   if (!leadData.email) return 'ask_email';
+
+  // Project: must be substantial (5+ chars)
   if (!leadData.project) return 'ask_project';
+
+  // Budget: must contain numbers
   if (!leadData.budget) return 'ask_budget';
+
   return 'complete';
 }
 
-// Generate bot message
+// Generate bot message with validation feedback
 function generateBotMessage(step, leadData) {
   const messages = {
     ask_name: "Hey there! 👋 I'm Osuolale's assistant. What's your name?",
-    ask_email: `Nice to meet you, ${leadData.name}! 😊 What's your email address?`,
-    ask_project: `Got it! What kind of project are you looking to build?`,
-    ask_budget: `Interesting! What's your budget range for this project?`,
+    ask_email: `Nice to meet you, ${leadData.name}! 😊 What's your email address? (Please enter a valid email like name@example.com)`,
+    ask_project: `Got it! What kind of project are you looking to build? (Please describe it in a few words)`,
+    ask_budget: `Interesting! What's your budget range for this project? (Please enter a number, like 5000 or $10,000)`,
     complete: `Thanks for the info, ${leadData.name}! We'll be in touch soon.`
   };
 
