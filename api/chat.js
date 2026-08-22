@@ -46,23 +46,43 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // Extract lead data from conversation
+    // Extract lead data from conversation + validate current message
     const leadData = extractLeadData(conversationHistory);
+    const validationResult = validateCurrentMessage(message, leadData);
+
+    // If current message failed validation, reject it
+    if (!validationResult.isValid) {
+      const nextStep = determineNextStep(leadData);
+      const botMessage = generateBotMessage(nextStep, leadData);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        message: botMessage,
+        isComplete: false,
+        validationError: validationResult.error,
+        timestamp: new Date().toISOString()
+      }));
+      return;
+    }
+
+    // Current message is valid, update lead data
+    const updatedLeadData = applyValidMessage(message, leadData);
 
     // Determine next step
-    const nextStep = determineNextStep(leadData);
-    const botMessage = generateBotMessage(nextStep, leadData);
+    const nextStep = determineNextStep(updatedLeadData);
+    const botMessage = generateBotMessage(nextStep, updatedLeadData);
 
     // If we have all data, call Claude
-    if (leadData.name && leadData.email && leadData.project && leadData.budget) {
-      const finalMessage = await generateFinalMessage(leadData);
+    if (updatedLeadData.name && updatedLeadData.email && updatedLeadData.project && updatedLeadData.budget) {
+      const finalMessage = await generateFinalMessage(updatedLeadData);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         success: true,
         message: finalMessage,
         isComplete: true,
-        leadData: leadData,
+        leadData: updatedLeadData,
         timestamp: new Date().toISOString()
       }));
       return;
@@ -206,4 +226,57 @@ Generate ONLY the message, nothing else.`;
     console.error('Claude error:', err.message);
     return `Perfect, ${leadData.name}! Osuolale will review your ${leadData.project} project and reach out at ${leadData.email} soon. Typical timeline: 1-2 weeks.`;
   }
+}
+
+// Validate current message against expected step
+function validateCurrentMessage(message, leadData) {
+  const step = determineNextStep(leadData);
+
+  if (step === 'ask_name') {
+    if (message.trim().length > 0) {
+      return { isValid: true };
+    }
+    return { isValid: false, error: 'Please enter a name' };
+  }
+
+  if (step === 'ask_email') {
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message.trim())) {
+      return { isValid: true };
+    }
+    return { isValid: false, error: 'Please enter a valid email like name@example.com' };
+  }
+
+  if (step === 'ask_project') {
+    if (message.trim().length >= 5) {
+      return { isValid: true };
+    }
+    return { isValid: false, error: 'Please describe your project with at least 5 characters' };
+  }
+
+  if (step === 'ask_budget') {
+    if (/\d+/.test(message)) {
+      return { isValid: true };
+    }
+    return { isValid: false, error: 'Please enter a number like 5000 or $10,000' };
+  }
+
+  return { isValid: true };
+}
+
+// Apply validated message to lead data
+function applyValidMessage(message, leadData) {
+  const step = determineNextStep(leadData);
+  const updated = { ...leadData };
+
+  if (step === 'ask_name') {
+    updated.name = message.trim();
+  } else if (step === 'ask_email') {
+    updated.email = message.trim();
+  } else if (step === 'ask_project') {
+    updated.project = message.trim();
+  } else if (step === 'ask_budget') {
+    updated.budget = message.trim();
+  }
+
+  return updated;
 }
